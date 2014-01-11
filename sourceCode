@@ -1,0 +1,604 @@
+/*********************************************/
+/* SIC ASSEMBLER,use two passes to assemble the source file   */ 
+/* into object program.SYMTAB and OPTAB are dhash Table.       */
+/* source program is reffered to text book page 45.           */
+/* object program is page 49                                  */
+/* author:wujiaxin                                            */
+/**************************************************************/
+#include "String.h"
+#include "stdlib.h"
+//#include "iomanip.h"
+#include "iostream"
+#include "iomanip"
+#include "fstream"
+using namespace std;
+
+
+
+const int MAXSYMNUM=100;                        //max symbol number 
+const int MAXOPNUM=100;                         //max instruction number 
+const char CNULL[7] = "CHNULL";
+int programLen=0;
+int rdLen=0;                                    //record len
+
+ifstream sourceProgram;
+ifstream sourceOptab;
+ofstream objectProgram;
+
+/******** struct declearation  **************/
+//structure of SYMTAB MEMBER
+struct Symbol{
+	//int errorFlag;
+	char name[7];
+	int value;
+};
+//structur of OPTAB
+struct Op{
+	char opmnemonic[7];
+	int format;
+	char opcode[3];
+};
+
+Symbol SYMTAB[MAXSYMNUM];
+Op OPTAB[MAXOPNUM];
+int  startAddr=0;
+
+/*********  assisitant function  ****************/
+int hextodec(int hex)
+{
+	int i=10;
+	int dec=0;
+	int j=hex;
+	int k;
+	int a=1;
+	while((j=j/10)>0){
+		k = hex%i;
+		dec+=k*a;
+		a*=16;
+		hex = hex/10;
+		if(j<10)
+				dec+=j*a;
+
+	}
+	return dec;
+}
+
+int isSubstr(char *target,char *substr)
+{
+	int i;
+	int j=0;
+	int len,len2;
+	len = strlen(substr);
+	len2 = strlen(target);
+	if(len2<len)
+		return 0;
+	for(i=0;i<len;i++){
+		if(target[i]==substr[i])
+			j++;
+	}
+	if(j==len)
+		return 1;
+	else
+		return 0;
+}
+
+void getSubStr(char *src,char *dst,int begin,int length)
+{
+	int pos=begin;
+	int j;
+	for(j=0;j<length;j++){
+		dst[j] = src[pos];
+		pos++;
+	
+	}
+	dst[j]='\0';                                     //set the end of character
+}
+
+int dhash(char *key)
+{
+	int i;
+	int pos;
+	int square;
+	i = key[0];                                     //first letter as key
+	square = i*i;
+	pos = (square%1000)/10;                         //middle the square method
+	return pos;
+}
+
+void displayOPTAB()
+{
+	int i;
+	for(i=0;i<MAXOPNUM;i++){
+		cout<<"OPTAB["<<i<<"].MNEMONIC="<<OPTAB[i].opmnemonic
+			<<"  OPTAB["<<i<<"].FORMAT="<<OPTAB[i].format
+			<<" OPTAB["<<i<<"].OPCODE="<<OPTAB[i].opcode
+			<<endl;
+	}
+}
+void displaySYMTAB()
+{
+	int i;
+	for(i=0;i<MAXSYMNUM;i++){
+		cout<<"symtab["<<i<<"].name="<<SYMTAB[i].name
+			<<"|  symtab["<<i<<"].value="<<SYMTAB[i].value<<"|"<<endl;
+	}
+}
+/*******program function *******************/
+
+int searchSymtab(char *target)
+{
+	int i;
+	int pos;
+	char operand[7];
+	getSubStr(target,operand,0,6);
+	pos= dhash(operand);
+	i=pos;
+	if(strcmp(SYMTAB[pos].name,CNULL)==0)
+		return 0;              //not found
+
+	while(SYMTAB[pos].name!=CNULL){
+		if(strcmp(SYMTAB[i].name,operand)==0){
+			return i; 
+		}
+		i=(i++)%MAXSYMNUM;
+		if(i==pos)
+			break;
+	}
+	return 0;                  //not found
+}
+
+int insertSymtab(Symbol target)
+{
+	int i;
+	int pos;
+	pos = dhash(target.name);
+	i=pos;                               
+	while(strcmp(SYMTAB[i].name,CNULL)!=0){          //HAVE VALUE
+		i=(i++)%MAXSYMNUM;
+	}
+	SYMTAB[i] = target;
+	return i;                                        //insert successful                 
+}
+
+
+int searchOPTAB(char *mnemonic,int &format)
+{
+	int i;
+	int pos;
+	pos= dhash(mnemonic);
+	i=pos;
+	if(strcmp(OPTAB[pos].opmnemonic,CNULL)==0)
+		return -1;              //not found
+
+	while(OPTAB[pos].opmnemonic!=CNULL){
+		if(isSubstr(OPTAB[i].opmnemonic,mnemonic)==1){
+			format=OPTAB[i].format;
+			//cout<<"format="<<format<<endl;
+			return i; 
+		}
+		i=(i++)%MAXOPNUM;
+		if(i==pos)
+			break;
+	}
+	//cout<<"format="<<format<<"   not found"<<endl;
+	return -1;                                           //not found
+}
+int insertOptab(Op target)
+{
+	int i;
+	int pos;
+	pos = dhash(target.opmnemonic);
+	i=pos;                               
+	while(strcmp(OPTAB[i].opmnemonic,CNULL)!=0){          //HAVE VALUE
+		i=(i++)%MAXOPNUM;
+	}
+	OPTAB[i] = target;
+	return i;                                             //insert successful                 
+}
+
+int getLength(char *operand)
+{
+	int i=0,len=0;
+	if(operand!=NULL&&operand[0]=='C'){
+		for(i=2;i<10&&operand[i]!='\0';i++){             //ascii '''->47
+			;
+		}
+		len=i-3;
+		return len;
+	}
+	if(operand !=NULL&&operand[0]=='X'){
+		for(i=2;(operand[i]!=' ')&&i<10;i++){
+			;
+		}
+		len=i-3;
+		if((len%2)!=0)
+			cout<<"BYTE:"<<operand<<" is error!"<<endl;
+		return len/2;
+	}
+	return -1;
+}
+
+void initSYMTAB()
+{
+	int i;
+	for(i=0;i<MAXSYMNUM;i++){
+		for(int j=0;j<7;j++)
+			SYMTAB[i].name[j] = CNULL[j];
+		SYMTAB[i].value = -1;
+	}
+}
+
+void initOPTAB()
+{
+
+	int i,j;
+	char f[2];
+	char c[3] ="  ";
+	char buffer[80];
+	Op op;
+
+	for(i=0;i<MAXOPNUM;i++){
+		for(j=0;j<7;j++)
+			OPTAB[i].opmnemonic[j] = CNULL[j];
+		OPTAB[i].format = -1;
+		for(j=0;j<3;j++)
+		 OPTAB[i].opcode[j] = c[j];
+	}
+	sourceProgram.open("SICOPTAB.txt");
+	while(sourceProgram.getline(buffer,30)){                    //read the first input line
+		getSubStr(buffer,op.opmnemonic,0,6);                //get mnemonic from buffer
+		getSubStr(buffer,f,7,1);								//get format from buffer
+		op.format = atoi(f);
+		getSubStr(buffer,op.opcode,9,3);							//get opcode from buffer
+		//cout<<op.opmnemonic<<","<<op.format<<","<<op.opcode<<","<<endl;
+		if(searchOPTAB!=0){
+			insertOptab(op);
+		}
+		else{
+			cout<<"error,duplicate op,please check the input OPTAB LIST"<<endl;
+			break;
+		}
+	}
+	sourceProgram.close();
+}
+
+void pass1()
+{
+	char buffer[80];
+	char label[7];
+	char mnemonic[7];
+	char operand[10];
+	int  locctr;
+	int format=0;
+	int pos;
+	int first =0;            //is the first instructor or not,if is,locctr not add 3         
+	Symbol sym;
+	
+	ifstream fi;
+	fi.open("sourceProgram.txt");            //open the source program
+	if (fi.is_open()){
+		//cout<<"success open sourceProgram"<<endl;
+	}
+	objectProgram.open("intermediate.txt");             //create the intermediate file
+	fi.getline(buffer,30);                              //read the first input line
+	getSubStr(buffer,label,0,6);                        //get lable from buffer
+	getSubStr(buffer,mnemonic,8,6);                     //get mnemonic from buffer
+	getSubStr(buffer,operand,16,9);                     //get operand from buffer
+	if(strcmp (mnemonic,"START ") ==0){
+		startAddr =hextodec(atoi(operand));         //save #[operand] as starting address
+		locctr = startAddr;                         //init locctr to starting address
+		objectProgram<<setfill('0')<<setw(4)<<locctr<<"  "<<buffer<<endl;       //write line to intermediate file
+		fi.getline(buffer,30);                      //read next input line
+		getSubStr(buffer,label,0,6);                //get lable from buffer
+		getSubStr(buffer,mnemonic,8,6);             //get mnemonic from buffer
+		getSubStr(buffer,operand,16,9);             //get operand from buffer
+		first =1;
+	}
+	else{
+		locctr = 0;
+	}
+		      
+	while(isSubstr(mnemonic,"END")==0){                       //IF OPCODE !="END"	
+		format=0;
+		if(strchr(buffer,'/')==NULL){                     //not a comment line
+			if(strcmp(label,"      ")!=0){
+				if(searchSymtab(label)!=0){       //search SYMTAB FOR label,if found
+					cout<<"error,duplicate symbol"<<endl; //set error flag (duplicate symbol)    
+					//exit(-1);                           
+				}
+				else{
+					strcpy_s(sym.name,label);
+					sym.value = locctr; 
+					pos=insertSymtab(sym);    //insert (label,loc) into SYMTAB
+				}
+			}
+			if(searchOPTAB(mnemonic,format)!=-1&&format!=0){        //search OPTAB for OPCODE
+					locctr +=format;                        //have found,locctr add instruction's length
+			}
+			else if (isSubstr(mnemonic,"WORD  ")==1){
+				format =3;
+				locctr +=format;                                //WORD,add 3 to locctr
+			}
+			else if (isSubstr(mnemonic,"RESW  ")==1){
+				format =3*(atoi(operand));
+				locctr +=format;                                //RESW,add 3*LEN to locctr
+			} 
+			else if (isSubstr(mnemonic,"RESB  ")==1){
+				format = atoi(operand); 
+				if(format!=-1)
+					locctr += format;                       //RESB,add LEN  to locctr
+				else
+					cout<<"count error"<<endl;
+			}
+			else if (isSubstr(mnemonic,"BYTE  ")==1){
+				format =getLength(operand);                    //BYTE,add the length of constant is bytes
+				locctr +=format;
+			}
+			else
+				cout<<"error,invalid operation code"<<endl;  //set error flag!
+			first = 0;
+
+		objectProgram<<setfill('0')<<setw(4)<<(locctr-format)<<"  "<<label<<"  "<<mnemonic<<"  "<<operand<<endl;             //write line to intermediate file
+		fi.getline(buffer,30);                //read next input line
+		getSubStr(buffer,label,0,6);                     //get lable from buffer
+		getSubStr(buffer,mnemonic,8,6);                  //get mnemonic from buffer
+		getSubStr(buffer,operand,16,9);                  //get operand from buffer
+		}
+	}
+	objectProgram<<setfill('0')<<setw(4)<<locctr<<"  "<<buffer<<endl;                 //write the last line to intermediate file
+	programLen = locctr-startAddr;                          //save locctr as program length
+	fi.close(); 
+	objectProgram.close();
+}
+
+void pass2()
+{
+	int wLen;                      //WORD number;           such as 'WORD 4096'  wLen=4096
+	int ojcodeLen=0;               //obejctcode len
+	int opLen;
+	int i,j;
+	int sAddr;                     //text record start address
+	int pos;
+	char code[3];                  //store the opcode found in the OPTAB
+	int format;
+	int opAddr=-1;
+	char copAddr[5];
+	char buffer[80];
+	char label[7];
+	char opcode[7];
+	char operand[10];
+	char op[7];                   //store the opreand,except (buffer,X)->',x'
+	char objectcode[7];
+	char address[7];
+	int locctr=0;
+	char cnul9[10]="         ";
+	char textRd[61]={'\0'};       //text record
+	ifstream fi;
+	ofstream fo;
+	//ofstream objectPgm;
+	//open the input,output file
+	fi.open("intermediate.txt");
+	fo.open("objectfile.txt");
+	//begin pass2
+	fi.getline(buffer,80);        //read the first input line(from intermedia file)
+	getSubStr(buffer,address,0,4); 
+	locctr = atoi(address);
+	getSubStr(buffer,label,6,6);                        //get lable from buffer
+	getSubStr(buffer,opcode,14,6);                      //get opcode from buffer
+	getSubStr(buffer,operand,22,9);                     //get operand from buffer
+
+	rdLen = 0;
+	if(strcmp (opcode,"START ") ==0){
+		fo<<setfill('0')<<setw(4)<<uppercase<<hex<<locctr<<"  "<<label<<"  "<<opcode<<"  "<<operand<<endl;
+		fo.close();
+	}
+	fo.open("objectProgram.txt");
+	
+	fo<<"H"<<label<<setfill('0')<<uppercase<<setw(6)<<locctr<<setw(6)<<programLen<<endl;   //write header record to object program
+	fo.close();
+
+	fi.getline(buffer,80);				      //read next input line
+	getSubStr(buffer,address,0,4);                        //read address from buffer
+	locctr = atoi(address);
+	sAddr = locctr;
+	getSubStr(buffer,label,6,6);                          //get lable from buffer
+	getSubStr(buffer,opcode,14,6);                        //get opcode from buffer
+	getSubStr(buffer,operand,22,9);                       //get operand from buffer
+
+	while(isSubstr(opcode,"END")==0){                     //if opcode != 'END' do
+		for(i=0;i<6;i++)                              //clear objectcode 
+			objectcode[i]='\0';
+
+		format = 0;
+		pos = -1;
+		opAddr=0;
+		if(strchr(buffer,'/')==NULL){                       //if this is not a commnet line 
+			pos=searchOPTAB(opcode,format);		    //search OPTAB for opcode
+			if(pos>0&&format>0){                        //opcode find
+				opLen = strlen(OPTAB[pos].opcode);
+				ojcodeLen=format*2;
+				for(i=0;i<opLen;i++)
+					code[i] = OPTAB[pos].opcode[i];       //get the opcode
+				if((isSubstr(operand,cnul9)==0)||operand[0]!=' '||strlen(operand)!=0){           //if oprand not null
+					getSubStr(operand,op,0,6);            //get the 0-6 operand
+					if((opAddr=searchSymtab(op))>0){      //store the oprand address,not found set error
+						opAddr = SYMTAB[opAddr].value;
+					}
+					else{
+						//opAddr = 0;
+						//cout<<"operand="<<op<<",pass2():error,can't find the oprand address"<<endl;
+					}		
+				}
+				else{
+					opAddr = 0;
+				}
+				//check if use index
+				char *pch;
+				pch = strchr(operand,',');
+				if(pch!=NULL)
+					opAddr+=0x8000;
+
+				_itoa_s(opAddr,copAddr,16);                           //int to char
+				//upper addr
+				for(j=0;j<4;j++){
+					copAddr[j]=toupper(copAddr[j]);                
+				}
+				for(j=0;j<2;j++){
+					objectcode[j]=toupper(code[j]);
+				}
+				///deal with the opAddr,int to char[4]   like 0->'0000'
+				if(opAddr>=0&&opAddr<0x10){
+					for(j=2;j<5;j++)
+						objectcode[j]='0';
+					objectcode[5]=copAddr[0];
+					objectcode[6]='\0';
+				}
+				else if(opAddr>=0x10&&opAddr<0x100){
+					for(j=2;j<4;j++)
+						objectcode[j]='0';
+					objectcode[4]=copAddr[0];
+					objectcode[5]=copAddr[1];
+					objectcode[6]='\0';
+				}
+				else if(opAddr>=0x100&&opAddr<0x1000){
+					for(j=2;j<3;j++)
+						objectcode[j]='0';
+					objectcode[3]=copAddr[0];
+					objectcode[4]=copAddr[1];
+					objectcode[5]=copAddr[2];
+					objectcode[6]='\0';
+				}
+				else if(opAddr>=0x1000&&opAddr<0x10000){
+					for(j=2;j<6;j++)
+						objectcode[j]=copAddr[j-2];
+					objectcode[6]='\0';
+				}
+				//////////////
+				else if(opAddr==0){
+					for(j=2;j<6;j++)
+						objectcode[j]='0';
+					objectcode[6]='\0';
+				}
+			}
+			else if(isSubstr(opcode,"BYTE  ")==1){
+				 int len,j;
+				 char c[3]={'\0'};
+				 len = getLength(operand);						  //BYTE,get len
+				 ojcodeLen = len*2;
+				 if(operand[0]=='C'){
+					 j=0;
+					 for(int i=2;i<len+3&&j<6;i++){
+						_itoa_s((int)operand[i],c,16);
+						objectcode[j]=toupper(c[0]);
+						objectcode[j+1]=toupper(c[1]);
+						j=j+2;
+					 }
+				 }
+				 if(operand[0]=='X'){
+					 j=0;
+					 for(int i=2;i<len*2+2&&j<6;i++){
+						objectcode[j]=toupper(operand[i]);
+						j++;
+					 }
+				 }
+			}
+			else if(isSubstr(opcode,"WORD  ")==1){
+				ojcodeLen = 6;
+				wLen = atoi(operand);
+				_itoa_s(wLen,objectcode,16); 
+			}
+			if(((rdLen+ojcodeLen)>60||isSubstr(opcode,"RESB  ")==1||isSubstr(opcode,"RESW  ")==1)&&rdLen!=0){                                   //if object code will not fit into the current text record 
+				fo.open("objectProgram.txt",ios::app);                 //write text record to object program
+				fo<<"T"<<setfill('0')<<setw(6)<<uppercase<<hex<<sAddr<<setfill('0')<<setw(2)<<uppercase<<(rdLen/2)<<textRd<<endl;  
+				fo.close();
+				sAddr = locctr;                               //initial new text record
+				for(int i=0;i<61;i++)
+					textRd[i] = '\0';
+				rdLen=0;
+			}
+			//add object code to text record
+			if(isSubstr(opcode,"BYTE  ")==1){
+				strncat_s(textRd,objectcode,ojcodeLen);
+				rdLen+=ojcodeLen;
+			}
+			else if((pos=searchOPTAB(opcode,format))>0&&format>0){
+				strncat_s(textRd,objectcode,ojcodeLen);
+				rdLen+=ojcodeLen;
+			}
+			else if(isSubstr(opcode,"WORD  ")==1){
+				if(wLen>=0&&wLen<16){
+					strncat_s(textRd,"00000",5);
+					strncat_s(textRd,objectcode,1);
+				}
+				else if(wLen>=0x10&&wLen<0x100){
+					strncat_s(textRd,"0000",4);
+					strncat_s(textRd,objectcode,2);
+				}
+				else if(wLen>=0x100&&wLen<0x1000){
+					strncat_s(textRd,"000",3);
+					strncat_s(textRd,objectcode,3);
+				}
+				else if(wLen>=0x1000&&wLen<0x10000){
+					strncat_s(textRd,"00",2);
+					strncat_s(textRd,objectcode,4);
+				}
+				else if(wLen>=0x10000&&wLen<0x100000){
+					strncat_s(textRd,"00",2);
+					strncat_s(textRd,objectcode,4);
+				}
+				else if(wLen>=0x100000&&wLen<0x1000000){
+					strncat_s(textRd,"0",1);
+					strncat_s(textRd,objectcode,5);
+				}
+				else if(wLen<0){
+					strncat_s(textRd,objectcode,6);
+				}
+				rdLen+=ojcodeLen;
+			}
+		}
+		fo.open("objectfile.txt",ios::app);
+		if(isSubstr(opcode,"WORD  ")){
+			fo<<setfill('0')<<setw(4)<<locctr<<"  "<<label<<"  "<<opcode<<"  "<<operand<<"         "<<setfill('0')<<setw(6)<<objectcode<<endl;      //write listing line
+		}
+		else
+			fo<<setfill('0')<<setw(4)<<locctr<<"  "<<label<<"  "<<opcode<<"  "<<operand<<"         "<<objectcode<<endl;      //write listing line
+		fo.close();
+		fi.getline(buffer,80);								  //read next input line
+		getSubStr(buffer,address,0,4);                        //read address from buffer
+		locctr = atoi(address);
+		for(int w=0;w<6;w++){                                 //clear label,opcode
+			label[w]='\0';
+			opcode[w]='\0';
+		}
+		for(int v=0;v<9;v++){                                 //clear operand
+			operand[v]='\0';
+		}
+		getSubStr(buffer,label,6,6);                          //get lable from buffer
+		getSubStr(buffer,opcode,14,6);                        //get opcode from buffer
+		getSubStr(buffer,operand,22,9);                       //get operand from buffer
+	}
+	fo.open("objectProgram.txt",ios::app);     
+	fo<<"T"<<setfill('0')<<setw(6)<<uppercase<<hex<<sAddr<<setfill('0')<<setw(2)<<uppercase<<(rdLen/2)<<textRd<<endl;   //write last text record to object program
+	fo<<"E"<<setfill('0')<<setw(6)<<uppercase<<hex<<startAddr<<oct<<endl;                                 //write End record to object program
+	fo.close();
+	fo.open("objectfile.txt",ios::app);
+	fo<<"      "<<opcode<<"  "<<operand<<endl;          //write last listing line
+	fo.close();
+}
+int main()
+{
+	int i;
+	initOPTAB();
+	initSYMTAB();
+
+	//displayOPTAB();
+	pass1();
+	//displaySYMTAB();
+	cout<<"after pass1()"<<endl;
+
+	pass2();
+	cout<<"after pass2()"<<endl;
+	cout<<"please any number to end"<<endl;
+	cin>>i;
+	return 0;
+}
